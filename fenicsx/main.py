@@ -21,7 +21,7 @@ domain = mesh.create_box(
 gdim = domain.topology.dim
 fdim = gdim - 1
 degree = 1
-quadrature_degree = 1
+quadrature_degree = 2
 quadrature_rule = "default"
 shape = (gdim,)
 
@@ -57,7 +57,7 @@ zeroArray = [0.0, 0.0, 0.0]
 T = fem.Constant(domain, np.array([-0.0, 0.0, 0.0]))
 n = ufl.FacetNormal(domain)
 dT = fem.Constant(domain, default_scalar_type(0.0))
-bf = fem.Constant(domain, np.array([0.0, 0.0, 0.0]))
+bf = fem.Constant(domain, np.array([1000.0, 0.0, 0.0]))
 
 stress = fem.Function(Q_6)
 stress_old = fem.Function(Q_6)
@@ -85,16 +85,33 @@ pressure_surface_tags = set_meshtags(domain, fdim, lambda x: np.isclose(x[0], 1.
 
 bcs = symmetry_bc(V)
 
-ds = ufl.Measure("ds", domain=domain, subdomain_data=pressure_surface_tags)
+ds = ufl.Measure(
+    "ds", domain=domain, metadata=metadata, subdomain_data=pressure_surface_tags
+)
 dx = ufl.Measure("dx", domain=domain, metadata=metadata)
 
 
 a_form = -ufl.inner(ufl.dot(tangent, eps(utf)), eps(v)) * dx
-L_form = (
-    ufl.inner(stress, eps(v)) * dx
-    - ufl.inner(T * dT, v) * ds(1)
-    - ufl.inner(bf, v) * dx
-)
+L_form = ufl.inner(stress, eps(v)) * dx - ufl.inner(bf, v) * dx
+
+# E = 200000.0
+# nu = 0.3
+# lmbda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
+# mu = E / (2.0 * (1.0 + nu))
+
+
+# def epsilon(u):
+#     return ufl.sym(
+#         ufl.grad(u)
+#     )  # Equivalent to 0.5*(ufl.nabla_grad(u) + ufl.nabla_grad(u).T)
+
+
+# def sigma(u):
+#     return lmbda * ufl.nabla_div(u) * ufl.Identity(len(u)) + 2 * mu * epsilon(u)
+
+
+# a_form = ufl.inner(sigma(utf), epsilon(v)) * ufl.dx
+# L_form = ufl.dot(bf, v) * ufl.dx
 
 v_reac = fem.Function(V)
 reaction = fem.form(
@@ -158,7 +175,7 @@ for i in range(0, numQPointsLocal):
         dstrain.x.array[6 * i : 6 * (i + 1)],
     )
 
-print(tangent.x.array)
+# print(tangent.x.array)
 np.set_printoptions(precision=3)
 
 relative_residual = 1
@@ -168,31 +185,37 @@ atol = 1e-4
 max_it = 25
 
 
-A.zeroEntries()
-fem.petsc.assemble_matrix(A, a, bcs=bcs)
-A.assemble()
+# A.zeroEntries()
+# fem.petsc.assemble_matrix(A, a, bcs=bcs)
+# A.assemble()
 
-A.view()
+# A.view()
 
-#viewer = PETSc.Viewer().createASCII("matrix.txt", mode="w")
-#viewer = PETSc.Viewer().createBinary("matrix.dat", mode="w")
-#A.view(viewer)
+# viewer = PETSc.Viewer().createASCII("matrix.txt", mode="w")
+# viewer = PETSc.Viewer().createBinary("matrix.dat", mode="w")
+# A.view(viewer)
 # #print(A.getValue(2, 2))
-A.convert("dense")
-array = A.getDenseArray()  # Get matrix as a NumPy array
+# A.convert("dense")
+# array = A.getDenseArray()  # Get matrix as a NumPy array
 
-# # Save to a text file
-np.savetxt("matrix.txt", array, fmt="%.6f")  # Save with 6 decimal places
+# # # Save to a text file
+# np.savetxt("matrix.txt", array, fmt="%.6f")  # Save with 6 decimal places
 
 
-exit()
+# exit()
 # %%
 dT.value = 0.0
-for num in range(0, 22):
+
+ksp = PETSc.KSP().create()
+ksp.setOperators(A)
+ksp.setType(PETSc.KSP.Type.PREONLY)  # Direct solve
+pc = ksp.getPC()
+pc.setType(PETSc.PC.Type.LU)  # Use LU factorization
+for num in range(1):
     dT.value += 0.05
     print(dT.value)
     Du.x.petsc_vec.zeroEntries()
-    while ((relative_residual > rtol and residual > atol) or False) and iter <= max_it:
+    while ((relative_residual > rtol and residual > atol) or False) and iter <= 1:
         A.zeroEntries()
         fem.petsc.assemble_matrix(A, a, bcs=bcs)
         A.assemble()
@@ -210,6 +233,7 @@ for num in range(0, 22):
 
         # Solve linear problem
         solver.solve(b, du.x.petsc_vec)
+
         du.x.scatter_forward()
 
         # Update
@@ -245,6 +269,7 @@ for num in range(0, 22):
 
         # print(relative_residual)
         iter += 1
+        Du.x.petsc_vec.view()
     if (relative_residual < rtol or residual < atol) and (iter <= max_it):
         print(
             f"(converged) Newton iteration {iter - 1} residual: {residual} relative_residual: {relative_residual} du norm: {du_norm}"
@@ -269,43 +294,3 @@ for num in range(0, 22):
     stress.x.petsc_vec.copy(stress_old.x.petsc_vec)
     statev.x.petsc_vec.copy(statev_old.x.petsc_vec)
     u.x.petsc_vec.axpy(-1, Du.x.petsc_vec)
-
-# Form to calculate the reaction forces
-
-# %%
-boundary_facets = mesh.locate_entities_boundary(
-    domain, fdim, marker=lambda x: np.isclose(x[0], 1.0)
-)
-boundary_dofs = fem.locate_dofs_topological(V.sub(0), fdim, boundary_facets)
-bcRx = fem.dirichletbc(default_scalar_type(1.0), boundary_dofs, V.sub(0))
-# fem.petsc.set_bc(v_reac.x.petsc_vec, [bcRx], None, 1.0)
-fem.set_bc(v_reac.x.array[:], [bcRx])
-print(f"Reaction force: {fem.assemble_scalar(reaction)}")
-# %%
-
-with io.XDMFFile(domain.comm, "deformation.xdmf", "w") as xdmf:
-    xdmf.write_mesh(domain)
-    u.name = "Deformation"
-    xdmf.write_function(u)
-
-# from dolfinx.io.utils import VTKFile
-
-# A_file = VTXWriter(domain.comm, "deformation.bp", u, "BP4")
-
-pyvista.start_xvfb()
-
-# Create plotter and pyvista grid
-p = pyvista.Plotter()
-topology, cell_types, geometry = plot.vtk_mesh(V)
-grid = pyvista.UnstructuredGrid(topology, cell_types, geometry)
-
-# Attach vector values to grid and warp grid by vector
-grid["u"] = u.x.array.reshape((geometry.shape[0], 3))
-actor_0 = p.add_mesh(grid, style="wireframe", color="k")
-warped = grid.warp_by_vector("u", factor=1.5)
-actor_1 = p.add_mesh(warped, show_edges=True)
-p.show_axes()
-if not pyvista.OFF_SCREEN:
-    p.show()
-else:
-    figure_as_array = p.screenshot("deflection.png")
