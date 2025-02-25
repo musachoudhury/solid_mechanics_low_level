@@ -11,6 +11,7 @@
 
 #include <basix/finite-element.h>
 #include <basix/mdspan.hpp>
+#include <basix/indexing.h>
 #include <basix/quadrature.h>
 #include <cmath>
 #include <concepts>
@@ -38,77 +39,94 @@ using mdspan2_t =
 /// @param w Integration weights.
 /// @return Element reference matrix (row-major storage).
 template <typename T>
-std::array<T, 9> A_ref(mdspand_t<const T, 4> phi, std::span<const T> w) {
+std::array<T, 576> A_ref(mdspand_t<const T, 4> phi, std::span<const T> w) {
   std::array<T, 9> A_b{};
   mdspan2_t<T, 3, 3> A(A_b.data());
 
+  std::array<T, 576> AFull_b{};
+  mdspan2_t<T, 24, 24> AFull(AFull_b.data());
+
   //A.extent(0) = 24
   //A.extent(1) = 24
-  for (std::size_t i = 0; i < A.extent(0)/3; ++i) // row i
-  {
-    for (std::size_t j = 0; j < A.extent(1)/3; ++j) // column j
+  for (std::size_t k = 0; k < phi.extent(1); ++k) { // quadrature point k
+    for (std::size_t i = 0; i < A.extent(0)/3; ++i) // row i
     {
-      std::array<T, 6 * 6> tangent_b{};
-      mdspan2_t<T, 6, 6> tangent(tangent_b.data());
+      for (std::size_t j = 0; j < A.extent(1)/3; ++j) // column j
+      {
+        std::array<T, 6 * 6> tangent_b{};
+        mdspan2_t<T, 6, 6> tangent(tangent_b.data());
 
-      std::array<T, 6 * 3> B_T_b{};
-      mdspan2_t<T, 3, 6> B_T(B_T_b.data());
+        std::array<T, 6 * 3> B_T_b{};
+        mdspan2_t<T, 3, 6> B_T(B_T_b.data());
 
-      std::array<T, 6 * 3> B_b{};
-      mdspan2_t<T, 6, 3> B(B_b.data());
+        std::array<T, 6 * 3> B_b{};
+        mdspan2_t<T, 6, 3> B(B_b.data());
 
-      //Move out of loop
-      B_T(0, 0) = phi(basix::indexing::idx(1, 0, 0), k, i, 0);
-      B_T(1, 1) = phi(basix::indexing::idx(0, 1, 0), k, i, 0);
-      B_T(2, 2) = phi(basix::indexing::idx(0, 0, 1), k, i, 0);
-      
-      B_T(1, 3) = phi(basix::indexing::idx(0, 0, 1), k, i, 0);
-      B_T(2, 3) = phi(basix::indexing::idx(0, 1, 0), k, i, 0);
+        //Move out of loop
+        B_T(0, 0) = phi(basix::indexing::idx(1, 0, 0), k, i, 0);
+        B_T(1, 1) = phi(basix::indexing::idx(0, 1, 0), k, i, 0);
+        B_T(2, 2) = phi(basix::indexing::idx(0, 0, 1), k, i, 0);
+        
+        B_T(1, 3) = phi(basix::indexing::idx(0, 0, 1), k, i, 0);
+        B_T(2, 3) = phi(basix::indexing::idx(0, 1, 0), k, i, 0);
 
-      B_T(0, 4) = phi(basix::indexing::idx(0, 0, 1), k, i, 0);
-      B_T(2, 4) = phi(basix::indexing::idx(1, 0, 0), k, i, 0);
+        B_T(0, 4) = phi(basix::indexing::idx(0, 0, 1), k, i, 0);
+        B_T(2, 4) = phi(basix::indexing::idx(1, 0, 0), k, i, 0);
 
-      B_T(0, 5) = phi(basix::indexing::idx(0, 1, 0), k, i, 0);
-      B_T(1, 5) = phi(basix::indexing::idx(1, 0, 0), k, i, 0);
+        B_T(0, 5) = phi(basix::indexing::idx(0, 1, 0), k, i, 0);
+        B_T(1, 5) = phi(basix::indexing::idx(1, 0, 0), k, i, 0);
 
-      ////////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////////
 
-      B(0, 0) = phi(basix::indexing::idx(1, 0, 0), k, j, 0);
-      B(1, 1) = phi(basix::indexing::idx(0, 1, 0), k, j, 0);
-      B(2, 2) = phi(basix::indexing::idx(0, 0, 1), k, j, 0);
-      
-      B(3, 1) = phi(basix::indexing::idx(0, 0, 1), k, j, 0);
-      B(3, 2) = phi(basix::indexing::idx(0, 1, 0), k, j, 0);
+        B(0, 0) = phi(basix::indexing::idx(1, 0, 0), k, j, 0);
+        B(1, 1) = phi(basix::indexing::idx(0, 1, 0), k, j, 0);
+        B(2, 2) = phi(basix::indexing::idx(0, 0, 1), k, j, 0);
+        
+        B(3, 1) = phi(basix::indexing::idx(0, 0, 1), k, j, 0);
+        B(3, 2) = phi(basix::indexing::idx(0, 1, 0), k, j, 0);
 
-      B(4, 0) = phi(basix::indexing::idx(0, 0, 1), k, j, 0);
-      B(4, 2) = phi(basix::indexing::idx(1, 0, 0), k, j, 0);
+        B(4, 0) = phi(basix::indexing::idx(0, 0, 1), k, j, 0);
+        B(4, 2) = phi(basix::indexing::idx(1, 0, 0), k, j, 0);
 
-      B(5, 0) = phi(basix::indexing::idx(0, 1, 0), k, j, 0);
-      B(5, 1) = phi(basix::indexing::idx(1, 0, 0), k, j, 0);
+        B(5, 0) = phi(basix::indexing::idx(0, 1, 0), k, j, 0);
+        B(5, 1) = phi(basix::indexing::idx(1, 0, 0), k, j, 0);
 
-      //Write B.T * D * B here
+        //Write B.T * D * B here
 
-      // C = B.T * D    3x6x6x6 = 3x6
+        // C = B.T * D    3x6x6x6 = 3x6
 
-      for (std::size_t i = 0; i < 3; ++i)
-        for (std::size_t i = 0; i < 3; ++i) 
+        std::array<T, 6 * 3> C_b{};
+        mdspan2_t<T, 3, 6> C(C_b.data());
 
-      // A = C * B    3x6x6x3 = 3x3
+        for (std::size_t p = 0; p < 3; ++p)
+          for (std::size_t q = 0; q < 6; ++q)
+            for (std::size_t r = 0; r < 6; ++r)
+              C(p, q) +=   B(p, r) * tangent(r, q);
 
-      //A(i, j)
-      
+        // A = C * B    3x6x6x3 = 3x3
+
+        for (std::size_t p = 0; p < 3; ++p)
+          for (std::size_t q = 0; q < 3; ++q)
+            for (std::size_t r = 0; r < 6; ++r)
+              A(p, q) +=   w[k]*C(p, r) * B(r, q);
+
+        
+        for (std::size_t p = 0; p < 3; ++p)
+          for (std::size_t q = 0; q < 3; ++q)
+            AFull(3*i+p, 3*j+q) = A(p, q);
+        
+      }
     }
   }
+      // for (std::size_t k = 0; k < phi.extent(1); ++k)   // quadrature point
+      //   for (std::size_t i = 0; i < A.extent(0); ++i)   // row i
+      //     for (std::size_t j = 0; j < A.extent(1); ++j) // column j
 
+      //       // phi: (derivative, quadrature point index, phi, component)
 
-    for (std::size_t k = 0; k < phi.extent(1); ++k)   // quadrature point
-      for (std::size_t i = 0; i < A.extent(0); ++i)   // row i
-        for (std::size_t j = 0; j < A.extent(1); ++j) // column j
-
-          // phi: (derivative, quadrature point index, phi, component)
-
-          A(i, j) += w[k] * phi(0, k, i, 0) * phi(0, k, j, 0);
-    return A_b;
+      //       A(i, j) += w[k] * phi(0, k, i, 0) * phi(0, k, j, 0);
+      // return A_b;
+      return AFull_b;
   }
 
   /// @brief Compute the P1 RHS vector for f=1 on the reference cell.
@@ -285,7 +303,7 @@ std::array<T, 9> A_ref(mdspand_t<const T, 4> phi, std::span<const T> w) {
     std::iota(cells.begin(), cells.end(), 0);
 
     // Tabulate basis functions at quadrature points
-    auto e_shape = e.tabulate_shape(0, weights.size());
+    auto e_shape = e.tabulate_shape(1, weights.size());
     std::size_t length =
         std::accumulate(e_shape.begin(), e_shape.end(), 1, std::multiplies<>{});
     std::vector<T> phi_b(length);
@@ -296,45 +314,46 @@ std::array<T, 9> A_ref(mdspand_t<const T, 4> phi, std::span<const T> w) {
     }
     // std::cout << "Phi shape 1: " << phi_b.data() << "shape 2: " << e_shape <<
     // "\n";
-    e.tabulate(0, X, phi);
+    e.tabulate(1, X, phi);
 
     // Utility function to compute det(J) for an affine triangle cell
     // (geometry is 3D)
     auto detJ = [](mdspan2_t<const T, 3, 3> x) {
-      return std::abs((x(0, 0) - x(1, 0)) * (x(2, 1) - x(1, 1)) -
-                      (x(0, 1) - x(1, 1)) * (x(2, 0) - x(1, 0)));
+      if(0)x(1,0);
+      return 1.0;//std::abs((x(0, 0) - x(1, 0)) * (x(2, 1) - x(1, 1)) -
+                 //     (x(0, 1) - x(1, 1)) * (x(2, 0) - x(1, 0)));
     };
 
     // Finite element mass matrix kernel function
-    std::array<T, 9> A_hat_b = A_ref<T>(phi, weights);
+    std::array<T, 576> A_hat_b = A_ref<T>(phi, weights);
     auto kernel_a = [A_hat = mdspan2_t<T, 3, 3>(A_hat_b.data()),
                      detJ](T *A, const T *, const T *, const T *x, const int *,
                            const uint8_t *) {
       T scale = detJ(mdspan2_t<const T, 3, 3>(x));
-      mdspan2_t<T, 3, 3> _A(A);
+      mdspan2_t<T, 24, 24> _A(A);
       for (std::size_t i = 0; i < A_hat.extent(0); ++i)
         for (std::size_t j = 0; j < A_hat.extent(1); ++j)
           _A(i, j) = scale * A_hat(i, j);
     };
 
-    // Finite element RHS (f=1) kernel function
-    auto kernel_L = [b_hat = b_ref<T>(phi, weights),
-                     detJ](T *b, const T *, const T *, const T *x, const int *,
-                           const uint8_t *) {
-      T scale = detJ(mdspan2_t<const T, 3, 3>(x));
-      for (std::size_t i = 0; i < 3; ++i)
-        b[i] = scale * b_hat[i];
-    };
+// <    // Finite element RHS (f=1) kernel function
+//     auto kernel_L = [b_hat = b_ref<T>(phi, weights),
+//                      detJ](T *b, const T *, const T *, const T *x, const int *,
+//                            const uint8_t *) {
+//       T scale = detJ(mdspan2_t<const T, 3, 3>(x));
+//       for (std::size_t i = 0; i < 3; ++i)
+//         b[i] = scale * b_hat[i];
+//     };>
 
     // Assemble matrix and vector using std::function kernel
     assemble_matrix0<T>(V, kernel_a, cells);
-    assemble_vector0<T>(V, kernel_L, cells);
+    //assemble_vector0<T>(V, kernel_L, cells);
 
     // // Assemble matrix and vector using lambda kernel. This version
     // // supports efficient inlining of the kernel in the assembler. This
     // // can give a significant performance improvement for lightweight
     // // kernels.
-    // assemble_matrix1<T>(mesh->geometry(), *V->dofmap(), kernel_a, cells);
+    //assemble_matrix1<T>(mesh->geometry(), *V->dofmap(), kernel_a, cells);
     // assemble_vector1<T>(mesh->geometry(), *V->dofmap(), kernel_L, cells);
 
     // list_timings(comm);
