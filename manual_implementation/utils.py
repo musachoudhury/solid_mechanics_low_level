@@ -39,14 +39,26 @@ def calc_B(phi, x_1, x_2, x_3):
     B[0, 0] = diff(phi, x_1)
     B[1, 1] = diff(phi, x_2)
     B[2, 2] = diff(phi, x_3)
+
     B[3, 1] = diff(phi, x_3)
     B[3, 2] = diff(phi, x_2)
+    
     B[4, 0] = diff(phi, x_3)
     B[4, 2] = diff(phi, x_1)
+    
     B[5, 0] = diff(phi, x_2)
     B[5, 1] = diff(phi, x_1)
     return B
 
+def eps(phi, x_1, x_2, x_3):
+    e = Matrix.zeros(6, 1)
+    e[0, 0] = diff(phi, x_1)
+    e[1, 1] = diff(phi, x_2)
+    e[2, 2] = diff(phi, x_3)
+    e[3, 0] = diff(phi, x_3)+diff(phi, x_2)
+    e[4, 0] = diff(phi, x_3)+diff(phi, x_1)
+    e[5, 0] = diff(phi, x_2)+diff(phi, x_1)
+    return e
 
 def assemble_matrix(A, phi, x_1, x_2, x_3, E, nu, weights, quadrature_points, tangent):        
     for i in range(0, 8):
@@ -56,6 +68,8 @@ def assemble_matrix(A, phi, x_1, x_2, x_3, E, nu, weights, quadrature_points, ta
             result = (
                 -calc_B(phi[i], x_1, x_2, x_3).T * tangent * calc_B(phi[j], x_1, x_2, x_3)
             )
+
+            #(tangent*eps(phi[i], x_1, x_2, x_3))*eps(phi[j], x_1, x_2, x_3)
 
             # Quadrature integration
             for index, w in enumerate(weights):
@@ -68,6 +82,7 @@ def assemble_matrix(A, phi, x_1, x_2, x_3, E, nu, weights, quadrature_points, ta
                         nu: 0.3,
                     },
                 )
+            print(result2)
             A[3 * i : 3 * (i + 1), 3 * j : 3 * (j + 1)] = result2
 
     return A

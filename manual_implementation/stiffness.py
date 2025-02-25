@@ -6,7 +6,6 @@ from sympy import symbols, Matrix, diff
 from utils import constitutive, getBasisFunctions, calc_B, assemble_matrix, assemble_vector, set_bc, getStrainExpr
 import basix
 
-
 quadrature_points, weights = basix.make_quadrature(basix.CellType.hexahedron, 2)
 
 x_1, x_2, x_3, phi_1, E, nu, u_1, bf = symbols("x_1 x_2 x_3 phi_1 E nu u_1 bf")
