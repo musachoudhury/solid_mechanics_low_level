@@ -65,3 +65,13 @@ def constitutive(stressArr, tangentArr, dstrainArr):
     for i in range(0, 6):
         for j in range(0, 6):
             stressArr[i] = stressArr[i] + tangentArr[i * 6 + j] * dstrainArr[j]
+
+def set_bc_and_diagonals(A, bcs):
+    for key in bcs:
+        print(key)
+        for i in bcs[key]:
+            A.col_op(3 * key + i, lambda v, j: 0.0)
+            A.row_op(3 * key + i, lambda v, j: 0.0)
+            A[3 * key + i, 3 * key + i] = 1.0
+            
+    return A
