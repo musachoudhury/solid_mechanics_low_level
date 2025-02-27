@@ -1,0 +1,98 @@
+      SUBROUTINE UMAT(STRESS,STATEV,DDSDDE,SSE,SPD,SCD,
+     1 RPL,DDSDDT,DRPLDE,DRPLDT,STRAN,DSTRAN,
+     2 TIME,DTIME,TEMP,DTEMP,PREDEF,DPRED,MATERL,NDI,NSHR,NTENS,
+     3 NSTATV,PROPS,NPROPS,COORDS,DROT,PNEWDT,CELENT,
+     4 DFGRD0,DFGRD1,NOEL,NPT,KSLAY,KSPT,KSTEP,KINC)
+C
+C  FOR THIS SIMPLE VERSION THE ONLY PARAMETERS REQUIRED
+C TO BE PASSED IN ARE 
+C
+C STRESS - AT THE BEGINING OF THE TIME STEP
+C STRAN - AT THE BEGINNING OF THE TIME STEP
+C DSTRAN - INCREMENT OF STRAIN OVER THE TIME STEP
+C NDI, NSHR, AND NTENS ARE 3, 3 AND 6 FOR A 3D MODEL
+C
+C  THE ONLY REQUIRED RETURN VARIABLES ARE
+C
+C STRESS - STRESS TENSOR AT THE END OF THE TIME STEP
+C DDSDDE - JACOBIAN (STIFFNESS) MATRIX (6X6) AT THE END
+C                    OF THE TIME STEP
+C      CHARACTER*80 MATERL, CMNAME
+
+      IMPLICIT DOUBLE PRECISION(A-H,O-Z)
+      PARAMETER (NPRECD=2)
+
+      DOUBLE PRECISION STRESS(NTENS),STATEV(NSTATV),
+     1 DDSDDE(NTENS,NTENS),DDSDDT(NTENS),DRPLDE(NTENS),
+     2 STRAN(NTENS),DSTRAN(NTENS),TIME(2),PREDEF(1),DPRED(1),
+     3 PROPS(NPROPS),COORDS(3),DROT(3,3),
+     4 DFGRD0(3,3),DFGRD1(3,3), KSTEP(4)
+
+      DOUBLE PRECISION PNEWDT, E, NU, MU, LAMBDA
+      INTEGER NPT
+
+
+C
+C
+C ----------------------------------------------------------------
+C ----------------------------------------------------------------
+C ----------------------------------------------------------------
+C ----------------------------------------------------------------
+C ----------------------------------------------------------------
+C
+      DOUBLE PRECISION FLOW(NTENS), STRESST(NTENS), DPSTRAN(NTENS),
+     1 DESTRAN(NTENS)
+C
+      PARAMETER (ZERO=0.D0, ONE=1.D0, TWO=2.D0, THREE=3.D0, SIX=6.D0,
+     1 ENUMAX=.4999D0, NEWTON=10, TOLER=1.0D-6)
+    
+C
+C ----------------------------------------------------------------
+C UMAT FOR ISOTROPIC ELASTICITY AND ISOTROPIC MISES PLASTICITY
+C CANNOT BE USED FOR PLANE STRESS
+C ----------------------------------------------------------------
+C PROPS(1) - E
+C PROPS(2) - NU
+C PROPS(3..) - SYIELD AN HARDENING DATA
+C CALLS UHARD FOR CURVE OF YIELD STRESS VS. PLASTIC STRAIN
+C ----------------------------------------------------------------
+C
+C ELASTIC PROPERTIES
+C
+
+      E = 200000.0
+      NU = 0.3D0
+
+      !LAMÉ PARAMETERS
+      LAMBDA = E*NU/((1.0D0+NU)*(1.0D0-2.0D0*NU))
+      MU = E/(2.0D0*(1.0D0+NU))
+
+      DO I = 1, NTENS
+        DO J = 1, NTENS
+          DDSDDE(I,J) = 0.0D0
+        END DO
+      END DO
+
+      !TANGENT
+      DO I = 1, NDI
+        DO J = 1, NDI
+          DDSDDE(I, J) = LAMBDA
+        END DO 
+        DDSDDE(I, I) = LAMBDA + 2.0D0*MU
+      END DO 
+
+      DO I = NDI+1, NTENS
+        DDSDDE(I,I) = MU
+      END DO 
+
+      !STRESS
+      DO I = 1, NTENS
+        DO J = 1, NTENS
+          STRESS(I) = STRESS(I) + DDSDDE(I,J) * DSTRAN(J)
+        END DO 
+      END DO 
+
+      WRITE(*, *) DDSDDE
+
+      RETURN
+      END
