@@ -75,6 +75,8 @@ double assemble_matrix1(const mesh::Geometry<T> &g, const fem::DofMap &dofmap,
   la::MatrixCSR<T> A(sp);
   auto ident = [](auto, auto, auto, auto) {}; // DOF permutation not required
   common::Timer timer("Assembler1 lambda (matrix)");
+
+  //Need to set the block size to 3 to get it working 
   fem::impl::assemble_cells(A.template mat_add_values<3, 3>(), g.dofmap(),
                             g.x(), cells, {dofmap.map(), 3, cells}, ident,
                             {dofmap.map(), 3, cells}, ident, {}, {}, kernel,
