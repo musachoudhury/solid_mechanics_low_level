@@ -3,7 +3,7 @@ import os
 os.chdir("/home/musa/Documents/main_projects/my_demos/solid_mechanics_low_level/manual_implementation") 
 
 from sympy import symbols, Matrix, diff
-from utils import constitutive, getBasisFunctions, calc_B, assemble_matrix
+from ufl_BTDB.utils import constitutive, getBasisFunctions, calc_B, assemble_matrix
 import basix
 
 
