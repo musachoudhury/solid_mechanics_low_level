@@ -47,10 +47,7 @@ def voigt(u):
     return ufl.as_vector(
         [
             u[0, 0],
-            u[
-                1,
-                1,
-            ],
+            u[1, 1],
             u[2, 2],
             2 * u[1, 2],
             2 * u[0, 2],
