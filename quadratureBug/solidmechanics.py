@@ -4,7 +4,7 @@ from basix import make_quadrature, CellType
 
 # Function spaces
 element_type = "hexahedron"
-e = element("Lagrange", element_type, 1, shape=(3,))
+e = element("Lagrange", element_type, 2, shape=(3,))
 mesh = ufl.Mesh(e)
 V = ufl.FunctionSpace(mesh, e)
 
