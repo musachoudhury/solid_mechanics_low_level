@@ -16,10 +16,12 @@ v = ufl.TestFunction(V)  # Test function
 quadrature_degree = 2
 quadrature_rule = "default"
 
+# For the tangent
 Qe_36 = quadrature_element(
     element_type, (6, 6), degree=quadrature_degree, scheme="default"
 )
 
+# For the stress
 Qe_6 = quadrature_element(
     element_type, (6,), degree=quadrature_degree, scheme="default"
 )
@@ -43,6 +45,11 @@ ds = ufl.Measure("ds", metadata=metadata, domain=mesh)
 dx = ufl.Measure("dx", domain=mesh, metadata=metadata)
 
 
+def eps(u):
+    return voigt(ufl.sym(ufl.grad(u)))
+
+
+# For recasting the strains to voigt notation
 def voigt(u):
     return ufl.as_vector(
         [
@@ -54,11 +61,6 @@ def voigt(u):
             2 * u[0, 1],
         ]
     )
-
-
-def eps(u):
-    return voigt(ufl.sym(ufl.grad(u)))
-
 
 a = -ufl.inner(ufl.dot(tangent, eps(du)), eps(v)) * dx
 L = ufl.inner(stress, eps(v)) * dx
