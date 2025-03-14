@@ -39,22 +39,20 @@ using mdspan2_t =
 /// @param w Integration weights.
 /// @return Element reference matrix (row-major storage).
 template <typename T>
-std::array<T, 3*3*8*8> A_ref(mdspand_t<const T, 4> phi, std::span<const T> w) {
+std::array<T, 3 * 3 * 8 * 8> A_ref(mdspand_t<const T, 4> phi,
+                                   std::span<const T> w) {
   std::array<T, 9> A_b{};
   mdspan2_t<T, 3, 3> A(A_b.data());
 
-  std::array<T, 3*3*8*8> AFull_b{};
+  std::array<T, 3 * 3 * 8 * 8> AFull_b{};
   // for (std::size_t i = 0; i < 576; ++i) {
   //   AFull_b[i] = 1.0;
   // }
-  mdspan2_t<T, 3*8, 3*8> AFull(AFull_b.data());
+  mdspan2_t<T, 3 * 8, 3 * 8> AFull(AFull_b.data());
 
-  std::array<T, 1> test{};
-  if (false)
-    test[0] = phi(0, 0, 0, 0) * w[0];
   // A.extent(0) = 24
   // A.extent(1) = 24
-  for (std::size_t k = 0; k < phi.extent(1); ++k) {   // quadrature point k
+  for (std::size_t k = 0; k < phi.extent(1); ++k) {       // quadrature point k
     for (std::size_t i = 0; i < AFull.extent(0) / 3; ++i) // row i
     {
       for (std::size_t j = 0; j < AFull.extent(1) / 3; ++j) // column j
@@ -132,12 +130,11 @@ std::array<T, 3*3*8*8> A_ref(mdspand_t<const T, 4> phi, std::span<const T> w) {
             for (std::size_t r = 0; r < 6; ++r) {
               AFull(3 * i + p, 3 * j + q) += -w[k] * C(p, r) * B(r, q);
             }
-            //std::cout << AFull(3 * i + p, 3 * j + q) << ", ";
-            //std::cout << 3 * i + p << ", " << 3 * j + q << ", ";
+            // std::cout << AFull(3 * i + p, 3 * j + q) << ", ";
+            // std::cout << 3 * i + p << ", " << 3 * j + q << ", ";
           }
-          //std::cout << "\n";
+          // std::cout << "\n";
         }
-
 
         // for (std::size_t p = 0; p < 3; ++p)
         //   for (std::size_t q = 0; q < 3; ++q) {
@@ -156,11 +153,56 @@ std::array<T, 3*3*8*8> A_ref(mdspand_t<const T, 4> phi, std::span<const T> w) {
 /// @param w Integration weights.
 /// @return RHS reference vector.
 template <typename T>
-std::array<T, 3> b_ref(mdspand_t<const T, 4> phi, std::span<const T> w) {
-  std::array<T, 3> b{};
-  for (std::size_t k = 0; k < phi.extent(1); ++k) // quadrature point
-    for (std::size_t i = 0; i < b.size(); ++i)    // row i
-      b[i] += w[k] * phi(0, k, i, 0);
+std::array<T, 3 * 8> b_ref(mdspand_t<const T, 4> phi, std::span<const T> w) {
+
+  std::array<T, 3 * 8> b;
+
+  std::array<T, 3 * 3> N_T_b;
+  mdspan2_t<T, 3, 3> N_T(N_T_b.data());
+
+  std::array<T, 3 * 6> B_T_b;
+  mdspan2_t<T, 3, 6> B_T(B_T_b.data());
+
+  std::array<T, 6> stress_b;
+  mdspan2_t<T, 6, 1> stress(stress_b.data());
+
+  std::array<T, 3> body_force_b{1000, 0, 0};
+  mdspan2_t<T, 3, 1> body_force(body_force_b.data());
+
+  for (std::size_t k = 0; k < phi.extent(1); ++k)  // quadrature point
+    for (std::size_t i = 0; i < b.size() / 3; ++i) // row i
+    {
+
+      for (std::size_t j = 0; j < 3; j++) {
+        N_T(j, j) = phi(0, k, i, 0);
+      }
+
+      B_T(0, 0) = phi(basix::indexing::idx(1, 0, 0), k, i, 0);
+      B_T(1, 1) = phi(basix::indexing::idx(0, 1, 0), k, i, 0);
+      B_T(2, 2) = phi(basix::indexing::idx(0, 0, 1), k, i, 0);
+
+      B_T(1, 3) = phi(basix::indexing::idx(0, 0, 1), k, i, 0);
+      B_T(2, 3) = phi(basix::indexing::idx(0, 1, 0), k, i, 0);
+
+      B_T(0, 4) = phi(basix::indexing::idx(0, 0, 1), k, i, 0);
+      B_T(2, 4) = phi(basix::indexing::idx(1, 0, 0), k, i, 0);
+
+      B_T(0, 5) = phi(basix::indexing::idx(0, 1, 0), k, i, 0);
+      B_T(1, 5) = phi(basix::indexing::idx(1, 0, 0), k, i, 0);
+
+      for (std::size_t j = 0; j < 3; j++) {
+
+        for (std::size_t p = 0; p < 6; p++) {
+          b[3 * i + j] += w[k] * (B_T(j, p) * stress(p, 1));
+        }
+        // Maybe we can more efficient because N_T is diagonal
+        // for (std::size_t p = 0; p < 3; p++) {
+        //   b[3 * i + j] += w[k] * (N_T(j, p) * body_force(p, 1));
+        //   std::cout << 3 * i + j << std::endl; 
+        // }
+      }
+    }
+
   return b;
 }
 
@@ -279,6 +321,11 @@ double assemble_vector1(const mesh::Geometry<T> &g, const fem::DofMap &dofmap,
       [](auto, auto, auto, auto) {}, b.mutable_array(), g.dofmap(), g.x(),
       cells, {dofmap.map(), 1, cells}, kernel, {}, {}, 0, {});
   b.scatter_rev(std::plus<T>());
+
+    std::span<T> b_span = b.mutable_array();
+  for (int i=0;i<24;i++){
+    std::cout << b_span[i] << std::endl;
+  }
   return la::squared_norm(b);
 }
 
@@ -357,7 +404,7 @@ template <std::floating_point T> void assemble(MPI_Comm comm) {
   // "\n";
   e.tabulate(1, X, phi);
 
-  //Utility function to compute det(J) for an affine triangle cell
+  // Utility function to compute det(J) for an affine triangle cell
   //(geometry is 3D)
   auto detJ = [](mdspan2_t<const T, 3, 3> x) {
     if (0)
@@ -367,46 +414,46 @@ template <std::floating_point T> void assemble(MPI_Comm comm) {
   };
 
   // Finite element mass matrix kernel function
-  std::array<T, 3*3*8*8> A_hat_b = A_ref<T>(phi, weights);
+  std::array<T, 3 * 3 * 8 * 8> A_hat_b = A_ref<T>(phi, weights);
 
-  mdspan2_t<T, 3*8, 3*8> A_hat(A_hat_b.data());
+  mdspan2_t<T, 3 * 8, 3 * 8> A_hat(A_hat_b.data());
 
   for (std::size_t i = 0; i < A_hat.extent(0); i++) {
     for (std::size_t j = 0; j < A_hat.extent(1); j++)
       std::cout << A_hat(i, j) << ", ";
     std::cout << "\n";
   }
-  auto kernel_a = [A_hat = mdspan2_t<T, 3*8, 3*8>(A_hat_b.data()),
+  auto kernel_a = [A_hat = mdspan2_t<T, 3 * 8, 3 * 8>(A_hat_b.data()),
                    detJ](T *A, const T *, const T *, const T *x, const int *,
                          const uint8_t *) {
     T scale = detJ(mdspan2_t<const T, 3, 3>(x));
-    mdspan2_t<T, 3*8, 3*8> _A(A);
+    mdspan2_t<T, 3 * 8, 3 * 8> _A(A);
     for (std::size_t i = 0; i < A_hat.extent(0); ++i)
       for (std::size_t j = 0; j < A_hat.extent(1); ++j)
         _A(i, j) = scale * A_hat(i, j);
   };
 
-  // // <    // Finite element RHS (f=1) kernel function
-  // //     auto kernel_L = [b_hat = b_ref<T>(phi, weights),
-  // //                      detJ](T *b, const T *, const T *, const T *x, const
-  // int *,
-  // //                            const uint8_t *) {
-  // //       T scale = detJ(mdspan2_t<const T, 3, 3>(x));
-  // //       for (std::size_t i = 0; i < 3; ++i)
-  // //         b[i] = scale * b_hat[i];
-  // //     };>
+  // Finite element RHS (f=1) kernel function
+  auto kernel_L = [b_hat = b_ref<T>(phi, weights),
+                   detJ](T *b, const T *, const T *, const T *x, const int *,
+                         const uint8_t *) {
+    T scale = detJ(mdspan2_t<const T, 3, 3>(x));
+    for (std::size_t i = 0; i < 3; ++i)
+      b[i] = scale * b_hat[i];
+  };
 
   //     // Assemble matrix and vector using std::function kernel
   // assemble_matrix0<T>(V, kernel_a, cells);
   //     //assemble_vector0<T>(V, kernel_L, cells);
 
   //     // // Assemble matrix and vector using lambda kernel. This version
-  //     // // supports efficient inlining of the kernel in the assembler. This
-  //     // // can give a significant performance improvement for lightweight
+  //     // // supports efficient inlining of the kernel in the assembler.
+  //     This
+  //     // // can give a significant performance improvement for
+  //     lightweight
   //     // // kernels.
   assemble_matrix1<T>(mesh->geometry(), *V->dofmap(), kernel_a, cells);
-  //     // assemble_vector1<T>(mesh->geometry(), *V->dofmap(), kernel_L,
-  //     cells);
+  assemble_vector1<T>(mesh->geometry(), *V->dofmap(), kernel_L, cells);
 
   //     //const fem::DofMap dofmap = *V->dofmap().map();
 
