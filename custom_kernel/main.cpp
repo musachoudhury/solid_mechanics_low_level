@@ -158,15 +158,20 @@ std::array<T, 3 * 8> b_ref(mdspand_t<const T, 4> phi, std::span<const T> w) {
   std::array<T, 3 * 8> b;
 
   std::array<T, 3 * 3> N_T_b;
+  N_T_b.fill({0});
+
   mdspan2_t<T, 3, 3> N_T(N_T_b.data());
 
   std::array<T, 3 * 6> B_T_b;
   mdspan2_t<T, 3, 6> B_T(B_T_b.data());
 
   std::array<T, 6> stress_b;
+
+  stress_b.fill({0});
+
   mdspan2_t<T, 6, 1> stress(stress_b.data());
 
-  std::array<T, 3> body_force_b{1000, 0, 0};
+  std::array<T, 3> body_force_b{1000.0, 0.0, 0.0};
   mdspan2_t<T, 3, 1> body_force(body_force_b.data());
 
   for (std::size_t k = 0; k < phi.extent(1); ++k)  // quadrature point
@@ -174,7 +179,7 @@ std::array<T, 3 * 8> b_ref(mdspand_t<const T, 4> phi, std::span<const T> w) {
     {
 
       for (std::size_t j = 0; j < 3; j++) {
-        N_T(j, j) = phi(0, k, i, 0);
+        N_T(j, j) = phi(basix::indexing::idx(0, 0, 0), k, i, 0);
       }
 
       B_T(0, 0) = phi(basix::indexing::idx(1, 0, 0), k, i, 0);
@@ -191,15 +196,15 @@ std::array<T, 3 * 8> b_ref(mdspand_t<const T, 4> phi, std::span<const T> w) {
       B_T(1, 5) = phi(basix::indexing::idx(1, 0, 0), k, i, 0);
 
       for (std::size_t j = 0; j < 3; j++) {
-
         for (std::size_t p = 0; p < 6; p++) {
-          b[3 * i + j] += w[k] * (B_T(j, p) * stress(p, 1));
+          b[3 * i + j] += w[k] * (B_T(j, p) * stress(p, 0));
         }
+
         // Maybe we can more efficient because N_T is diagonal
-        // for (std::size_t p = 0; p < 3; p++) {
-        //   b[3 * i + j] += w[k] * (N_T(j, p) * body_force(p, 1));
-        //   std::cout << 3 * i + j << std::endl; 
-        // }
+        for (std::size_t p1 = 0; p1 < 3; p1++) {
+          b[3 * i + j] += w[k] * (N_T(j, p1) * body_force(p1, 0));
+        }
+        // std::cout << b[3 * i + j] << std::endl;
       }
     }
 
@@ -283,12 +288,18 @@ double assemble_matrix1(const mesh::Geometry<T> &g, const fem::DofMap &dofmap,
   la::MatrixCSR<T> A(sp);
   auto ident = [](auto, auto, auto, auto) {}; // DOF permutation not required
   common::Timer timer("Assembler1 lambda (matrix)");
-  fem::impl::assemble_cells(A.template mat_add_values<3, 3>(), g.dofmap(),
-                            g.x(), cells, {dofmap.map(), 3, cells}, ident,
-                            {dofmap.map(), 3, cells}, ident, {}, {}, kernel,
-                            std::span<const T>(), 0, {}, {}, {});
+
+  // TODO Check block size
+  md::mdspan<const T, md::extents<std::size_t, md::dynamic_extent, 3>> x(
+      g.x().data(), g.x().size() / 3, 3);
+  fem::impl::assemble_cells<T>(A.template mat_add_values<3, 3>(), g.dofmap(), x,
+                               cells, {dofmap.map(), 3, cells}, ident,
+                               {dofmap.map(), 3, cells}, ident, {}, {}, kernel,
+                               {}, {}, {}, {});
+
   A.scatter_rev();
 
+  // Print dense matrix (for checking)
   // std::vector<double> A_dense = A.to_dense();
 
   // for (int i = 0; i < 3*8; i++) {
@@ -316,16 +327,18 @@ template <std::floating_point T>
 double assemble_vector1(const mesh::Geometry<T> &g, const fem::DofMap &dofmap,
                         auto kernel, const std::vector<std::int32_t> &cells) {
   la::Vector<T> b(dofmap.index_map, 1);
+  md::mdspan<const T, md::extents<std::size_t, md::dynamic_extent, 3>> x(
+      g.x().data(), g.x().size() / 3, 3);
   common::Timer timer("Assembler1 lambda (vector)");
-  fem::impl::assemble_cells<T, 1>(
-      [](auto, auto, auto, auto) {}, b.mutable_array(), g.dofmap(), g.x(),
-      cells, {dofmap.map(), 1, cells}, kernel, {}, {}, 0, {});
+  fem::impl::assemble_cells<T, 1>([](auto, auto, auto, auto) {},
+                                  b.mutable_array(), g.dofmap(), x, cells,
+                                  {dofmap.map(), 1, cells}, kernel, {}, {}, {});
   b.scatter_rev(std::plus<T>());
 
-    std::span<T> b_span = b.mutable_array();
-  for (int i=0;i<24;i++){
-    std::cout << b_span[i] << std::endl;
-  }
+  std::span<T> b_span = b.mutable_array();
+  // for (int i = 0; i < 24; i++) {
+  //   std::cout << b_span[i] << std::endl;
+  // }
   return la::squared_norm(b);
 }
 
@@ -338,44 +351,39 @@ double assemble_vector1(const mesh::Geometry<T> &g, const fem::DofMap &dofmap,
 /// @tparam T Scalar type.
 /// @param comm MPI communicator to assembler over.
 template <std::floating_point T> void assemble(MPI_Comm comm) {
-  // constexpr std::size_t gdim = 3;
+  constexpr std::size_t gdim = 3;
   //  Create mesh
+
+  mesh::CellType celltype = mesh::CellType::hexahedron;
+
   auto mesh = std::make_shared<mesh::Mesh<double>>(mesh::create_box<double>(
-      comm, {{{0.0, 0.0, 0.0}, {1.0, 1.0, 1.0}}}, {1, 1, 1},
-      mesh::CellType::hexahedron,
+      comm, {{{0.0, 0.0, 0.0}, {1.0, 1.0, 1.0}}}, {3, 4, 5}, celltype,
       mesh::create_cell_partitioner(mesh::GhostMode::none)));
 
   // Create Basix P1 Lagrange element. This will be used to construct
   // basis functions inside the custom cell kernel.
-  constexpr int order = 2;
+  constexpr int order = 1;
   basix::FiniteElement e = basix::create_element<T>(
-      basix::element::family::P,
-      mesh::cell_type_to_basix_type(mesh::CellType::hexahedron), order,
+      basix::element::family::P, mesh::cell_type_to_basix_type(celltype), order,
       basix::element::lagrange_variant::unset,
       basix::element::dpc_variant::unset, false);
 
   // Construct quadrature rule
   constexpr int max_degree = 2 * order;
   auto quadrature_type = basix::quadrature::get_default_rule(
-      basix::cell::type::hexahedron, max_degree);
+      mesh::cell_type_to_basix_type(celltype), max_degree);
   auto [X_b, weights] = basix::quadrature::make_quadrature<T>(
-      quadrature_type, basix::cell::type::hexahedron,
+      quadrature_type, mesh::cell_type_to_basix_type(celltype),
       basix::polyset::type::standard, max_degree);
 
   mdspand_t<const T, 2> X(X_b.data(), weights.size(), 3);
 
   // Create a scalar function space
-  // auto V =
-  // std::make_shared<fem::FunctionSpace<T>>(fem::create_functionspace<T>(
-  //     mesh, std::make_shared<fem::FiniteElement<T>>(
-  //               e, std::vector<std::size_t>{gdim})));
+  auto V = std::make_shared<fem::FunctionSpace<T>>(fem::create_functionspace<T>(
+      mesh, std::make_shared<fem::FiniteElement<T>>(
+                e, std::vector<std::size_t>{gdim})));
 
-  auto V = std::make_shared<fem::FunctionSpace<double>>(
-      fem::create_functionspace<double>(
-          mesh, std::make_shared<fem::FiniteElement<double>>(
-                    e, std::vector<std::size_t>{3})));
-
-  auto dofmap = V->dofmap(); //->map();
+  auto dofmap = V->dofmap();
 
   auto dmap = dofmap->map();
 
@@ -407,10 +415,10 @@ template <std::floating_point T> void assemble(MPI_Comm comm) {
   // Utility function to compute det(J) for an affine triangle cell
   //(geometry is 3D)
   auto detJ = [](mdspan2_t<const T, 3, 3> x) {
-    if (0)
-      x(1, 0);
-    return 1.0; // std::abs((x(0, 0) - x(1, 0)) * (x(2, 1) - x(1, 1)) -
-                //      (x(0, 1) - x(1, 1)) * (x(2, 0) - x(1, 0)));
+    if (1)
+      x(0, 0);
+    return std::abs((x(0, 0) - x(1, 0)) * (x(2, 1) - x(1, 1)) -
+                    (x(0, 1) - x(1, 1)) * (x(2, 0) - x(1, 0)));
   };
 
   // Finite element mass matrix kernel function
@@ -418,11 +426,12 @@ template <std::floating_point T> void assemble(MPI_Comm comm) {
 
   mdspan2_t<T, 3 * 8, 3 * 8> A_hat(A_hat_b.data());
 
-  for (std::size_t i = 0; i < A_hat.extent(0); i++) {
-    for (std::size_t j = 0; j < A_hat.extent(1); j++)
-      std::cout << A_hat(i, j) << ", ";
-    std::cout << "\n";
-  }
+  // for (std::size_t i = 0; i < A_hat.extent(0); i++) {
+  //   for (std::size_t j = 0; j < A_hat.extent(1); j++)
+  //     std::cout << A_hat(i, j) << ", ";
+  //   std::cout << "\n";
+  // }
+
   auto kernel_a = [A_hat = mdspan2_t<T, 3 * 8, 3 * 8>(A_hat_b.data()),
                    detJ](T *A, const T *, const T *, const T *x, const int *,
                          const uint8_t *) {
@@ -442,28 +451,9 @@ template <std::floating_point T> void assemble(MPI_Comm comm) {
       b[i] = scale * b_hat[i];
   };
 
-  //     // Assemble matrix and vector using std::function kernel
-  // assemble_matrix0<T>(V, kernel_a, cells);
-  //     //assemble_vector0<T>(V, kernel_L, cells);
-
-  //     // // Assemble matrix and vector using lambda kernel. This version
-  //     // // supports efficient inlining of the kernel in the assembler.
-  //     This
-  //     // // can give a significant performance improvement for
-  //     lightweight
-  //     // // kernels.
   assemble_matrix1<T>(mesh->geometry(), *V->dofmap(), kernel_a, cells);
   assemble_vector1<T>(mesh->geometry(), *V->dofmap(), kernel_L, cells);
 
-  //     //const fem::DofMap dofmap = *V->dofmap().map();
-
-  //     //const fem::DofMap &dofmap =
-  //     auto dofmap = V->dofmap();//->map();
-
-  //     auto dmap = dofmap->map();
-
-  //     const int num_dofs = dmap.extent(1);
-  //     std::cout << num_dofs << std::endl;
   // list_timings(comm);
 }
 
